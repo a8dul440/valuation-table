@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
+    /* All your existing CSS remains exactly the same */
     :root {
       --primary: #28a745;
       --primary-dark: #1e7e34;
@@ -165,7 +166,7 @@
     }
     
     .highlight-col {
-      background: rgba(255, 99, 71, 0.15) !important; /* Changed to light red */
+      background: rgba(255, 99, 71, 0.15) !important;
       font-weight: 600;
       color: #0a58ca;
     }
@@ -291,7 +292,6 @@
   <div class="app-container">
     <div class="app-header">
       <h1 class="app-title"><i class="fas fa-table me-2"></i>DC Valuation Table</h1>
-      <!-- Removed the 5% increase toggle button -->
     </div>
 
     <div class="mode-selector">
@@ -427,6 +427,7 @@
   <script>
     // Your existing JavaScript code with modifications
     const cachedData={rural:null,urban:null};
+    let ruralHandler, urbanHandler;
 
     // Function to auto-load CSV files
     function autoLoadCSVFiles() {
@@ -467,6 +468,11 @@
                 // Update UI to show rural is loaded
                 document.getElementById("show-rural").classList.add("loaded");
                 console.log("Rural_2025.csv auto-loaded successfully");
+                
+                // Initialize rural section if handler is ready
+                if (ruralHandler && ruralHandler.setData) {
+                  ruralHandler.setData(filteredData, headers);
+                }
               }
             },
             error: function(error) {
@@ -515,6 +521,11 @@
                 // Update UI to show urban is loaded
                 document.getElementById("show-urban").classList.add("loaded");
                 console.log("Urban_2025.csv auto-loaded successfully");
+                
+                // Initialize urban section if handler is ready
+                if (urbanHandler && urbanHandler.setData) {
+                  urbanHandler.setData(filteredData, headers);
+                }
               }
             },
             error: function(error) {
@@ -534,37 +545,7 @@
       document.getElementById("rural-section").style.display="block";
       document.getElementById("urban-section").style.display="none";
       if(!cachedData.rural)document.getElementById("rural-file").click();
-      else {
-        // Initialize rural section with auto-loaded data
-        const filterSection = document.getElementById("rural-filters");
-        filterSection.style.display = "block";
-        filterSection.dataset.loaded = "true";
-        
-        // Reset and populate filters
-        const filterOrder = ["Tehsil","Qanoongoi","Mauza","Classification","Location"];
-        filterOrder.forEach((k,i) => {
-          const sel = document.getElementById(`rural-${k.replace(/ /g,"")}`);
-          if (!sel) return;
-          sel.innerHTML = `<option value="">Select ${k}</option>`;
-          sel.disabled = i !== 0;
-        });
-        
-        // Populate first filter
-        const firstFilterSel = document.getElementById("rural-Tehsil");
-        if (firstFilterSel && cachedData.rural.raw.length > 0) {
-          const vals = [...new Set(cachedData.rural.raw.map(r => r["Tehsil"]).filter(v => String(v).trim() !== ""))].sort();
-          firstFilterSel.innerHTML = `<option value="">Select Tehsil</option>` + vals.map(v => `<option>${v}</option>`).join("");
-          firstFilterSel.disabled = false;
-          
-          // Set Depalpur as default for rural Tehsil
-          const DepalpurOption = Array.from(firstFilterSel.options).find(opt => opt.text === "Depal Pur");
-          if (DepalpurOption) {
-            firstFilterSel.value = "Depal Pur";
-            // Trigger change to update subsequent filters
-            firstFilterSel.dispatchEvent(new Event('change'));
-          }
-        }
-      }
+      else if (ruralHandler && ruralHandler.render) ruralHandler.render();
       
       // Update active state
       document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
@@ -575,29 +556,7 @@
       document.getElementById("urban-section").style.display="block";
       document.getElementById("rural-section").style.display="none";
       if(!cachedData.urban)document.getElementById("urban-file").click();
-      else {
-        // Initialize urban section with auto-loaded data
-        const filterSection = document.getElementById("urban-filters");
-        filterSection.style.display = "block";
-        filterSection.dataset.loaded = "true";
-        
-        // Reset and populate filters
-        const filterOrder = ["Town","Revenue Circle","Property Area","Classification","Location"];
-        filterOrder.forEach((k,i) => {
-          const sel = document.getElementById(`urban-${k.replace(/ /g,"")}`);
-          if (!sel) return;
-          sel.innerHTML = `<option value="">Select ${k}</option>`;
-          sel.disabled = i !== 0;
-        });
-        
-        // Populate first filter
-        const firstFilterSel = document.getElementById("urban-Town");
-        if (firstFilterSel && cachedData.urban.raw.length > 0) {
-          const vals = [...new Set(cachedData.urban.raw.map(r => r["Town"]).filter(v => String(v).trim() !== ""))].sort();
-          firstFilterSel.innerHTML = `<option value="">Select Town</option>` + vals.map(v => `<option>${v}</option>`).join("");
-          firstFilterSel.disabled = false;
-        }
-      }
+      else if (urbanHandler && urbanHandler.render) urbanHandler.render();
       
       // Update active state
       document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
@@ -640,10 +599,36 @@
       const rowsPerPageSelect=document.getElementById(`${prefix}-rowsperpage`);
       const filterSelects={}; filterOrder.forEach(k=>filterSelects[k]=document.getElementById(`${prefix}-${k.replace(/ /g,"")}`));
 
+      // Function to set data (used for both manual and auto-load)
+      function setData(data, hdrs) {
+        rawData = data.filter(r=>Object.values(r).some(v=>String(v).trim()!=""));
+        headers = hdrs;
+        cachedData[prefix] = { raw: rawData, headers: headers };
+        filterSection.style.display = "block"; 
+        filterSection.dataset.loaded = "true"; 
+        resetFilters(); 
+        populateFilters(filterOrder[0], rawData);
+        document.getElementById(`show-${prefix}`).classList.add("loaded");
+        
+        // After loading, set Depalpur as default for rural Tehsil
+        if (prefix === "rural") {
+          const tehsilSelect = document.getElementById("rural-Tehsil");
+          if (tehsilSelect) {
+            // Check if Depal Pur exists in the options
+            const DepalpurOption = Array.from(tehsilSelect.options).find(opt => opt.text === "Depal Pur");
+            if (DepalpurOption) {
+              tehsilSelect.value = "Depal Pur";
+              // Trigger change to update subsequent filters
+              tehsilSelect.dispatchEvent(new Event('change'));
+            }
+          }
+        }
+      }
+
       fileInput.addEventListener("change",e=>{
         const file=e.target.files[0]; if(!file) return;
         const ext=file.name.split('.').pop().toLowerCase();
-        const handle=(data,hdrs)=>{
+        const handleFileData=(data,hdrs)=>{
           // Filter out unwanted columns for both rural and urban data
           data = data.map(row => {
             const newRow = {...row};
@@ -678,28 +663,10 @@
             return true;
           });
           
-          rawData=data.filter(r=>Object.values(r).some(v=>String(v).trim()!=""));
-          headers=hdrs;
-          cachedData[prefix]={ raw: rawData, headers: headers };
-          filterSection.style.display="block"; filterSection.dataset.loaded="true"; resetFilters(); populateFilters(filterOrder[0],rawData);
-          document.getElementById(`show-${prefix}`).classList.add("loaded");
-          
-          // After loading, set Depalpur as default for rural Tehsil
-          if (prefix === "rural") {
-            const tehsilSelect = document.getElementById("rural-Tehsil");
-            if (tehsilSelect) {
-              // Check if Depal Pur exists in the options
-              const DepalpurOption = Array.from(tehsilSelect.options).find(opt => opt.text === "Depal Pur");
-              if (DepalpurOption) {
-                tehsilSelect.value = "Depal Pur";
-                // Trigger change to update subsequent filters
-                tehsilSelect.dispatchEvent(new Event('change'));
-              }
-            }
-          }
+          setData(data, hdrs);
         };
-        if(ext==="csv"){Papa.parse(file,{header:true,complete:res=>handle(res.data,res.meta.fields)});}
-        else {const reader=new FileReader();reader.onload=ev=>{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:"array"});const sheet=wb.Sheets[wb.SheetNames[0]];const json=XLSX.utils.sheet_to_json(sheet,{defval:""});handle(json,Object.keys(json[0]||{}));};reader.readAsArrayBuffer(file);}
+        if(ext==="csv"){Papa.parse(file,{header:true,complete:res=>handleFileData(res.data,res.meta.fields)});}
+        else {const reader=new FileReader();reader.onload=ev=>{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:"array"});const sheet=wb.Sheets[wb.SheetNames[0]];const json=XLSX.utils.sheet_to_json(sheet,{defval:""});handleFileData(json,Object.keys(json[0]||{}));};reader.readAsArrayBuffer(file);}
       });
 
       function resetFilters(){filterOrder.forEach((k,i)=>{const sel=filterSelects[k];if(!sel)return;sel.innerHTML=`<option value="">Select ${k}</option>`;sel.disabled=i!==0;});dataSection.style.display="none";filteredData=[];}
@@ -855,12 +822,28 @@
       filterOrder.forEach(k=>{const sel=filterSelects[k];if(sel)sel.addEventListener("change",updateFilters);});
       rowsPerPageSelect.addEventListener("change",renderTable);
       window[`${prefix}Render`]=renderTable;
+      
+      // Return handler functions for external use
+      return {
+        setData: setData,
+        render: renderTable
+      };
     }
 
     // Updated filter order for rural (starting with Tehsil instead of District)
-    buildHandlers("rural",["Tehsil","Qanoongoi","Mauza","Classification","Location"]);
+    ruralHandler = buildHandlers("rural",["Tehsil","Qanoongoi","Mauza","Classification","Location"]);
     // Updated filter order for urban (starting with Town instead of District/Tehsil)
-    buildHandlers("urban",["Town","Revenue Circle","Property Area","Classification","Location"]);
+    urbanHandler = buildHandlers("urban",["Town","Revenue Circle","Property Area","Classification","Location"]);
+
+    // Initialize auto-loaded data if handlers are ready
+    window.addEventListener('DOMContentLoaded', () => {
+      if (cachedData.rural && ruralHandler) {
+        ruralHandler.setData(cachedData.rural.raw, cachedData.rural.headers);
+      }
+      if (cachedData.urban && urbanHandler) {
+        urbanHandler.setData(cachedData.urban.raw, cachedData.urban.headers);
+      }
+    });
 
     function openCalculator(rowData, sourceType){
       const modalEl = document.getElementById("calculatorModal");
